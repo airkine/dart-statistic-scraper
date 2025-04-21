@@ -1,10 +1,6 @@
 # GoReleaser configuration for dart-statistic-scraper
 project_name: dart-scraper
 
-# Allow custom version formats that don't strictly follow semantic versioning
-env_files:
-  github_token: ~/.config/goreleaser/github_token
-
 before:
   hooks:
     - go mod tidy
@@ -21,12 +17,12 @@ builds:
       - arm64
     ldflags:
       - -s -w
-      - -X main.version={{.Env.VERSION}}
+      - -X main.version={{.Tag}}
 
 archives:
   - format: tar.gz
     name_template: >-
-      {{ .ProjectName }}_{{ .Env.VERSION }}_
+      {{ .ProjectName }}_{{ .Tag }}_
       {{- title .Os }}_
       {{- if eq .Arch "amd64" }}x86_64
       {{- else if eq .Arch "arm64" }}aarch64
@@ -38,12 +34,11 @@ archives:
 checksum:
   name_template: 'checksums.txt'
 
-# Skip version validation to allow non-semver compliant version strings
 release:
   disable: false
   draft: false
   prerelease: auto
-  name_template: "Release {{.Env.VERSION}}"
+  name_template: "Release {{.Tag}}"
 
 changelog:
   sort: asc

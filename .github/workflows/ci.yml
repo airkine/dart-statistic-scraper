@@ -120,15 +120,28 @@ jobs:
           path: ./bin/dart-scraper
           retention-days: 7
           
-      - name: Generate version from date
+      - name: Generate semantic version from date
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         id: generate_version
         run: |
-          DATE_VERSION="v$(date +'%Y.%m.%d')"
-          BUILD_NUMBER=$(date +'%H%M')
-          VERSION="${DATE_VERSION}.${BUILD_NUMBER}"
+          # Generate date components
+          YEAR=$(date +'%Y')
+          MONTH=$(date +'%m')
+          DAY=$(date +'%d')
+          TIME=$(date +'%H%M')
+          
+          # Calculate MAJOR (year - 2020)
+          MAJOR=$((YEAR - 2020))
+          # Use month.day as MINOR
+          MINOR="${MONTH}${DAY}"
+          # Use time as PATCH
+          PATCH="${TIME}"
+          
+          # Create semver-compatible version
+          VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+          
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "Generated version: ${VERSION}"
+          echo "Generated semantic version: ${VERSION}"
           
       - name: Create and push tag
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
