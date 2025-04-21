@@ -15,7 +15,7 @@ RUN go mod download
 COPY . .
 
 # Build the application with version information
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-X main.version=$(git describe --tags || echo 'dev')" -o /app/bin/dart-scraper ./cmd/dart-scraper
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-X main.version=$(git describe --tags 2>/dev/null || echo 'dev')" -o /app/bin/dart-scraper ./cmd/dart-scraper
 
 # Runtime stage - using minimal alpine image
 FROM alpine:3.19
