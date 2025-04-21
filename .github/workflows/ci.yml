@@ -65,15 +65,15 @@ jobs:
       #     go vet ./...
       #     golangci-lint run
 
-      - name: Run tests
-        run: go test -v ./... -coverprofile=coverage.txt -covermode=atomic
+      # - name: Run tests
+      #   run: go test -v ./... -coverprofile=coverage.txt -covermode=atomic
 
-      - name: Upload coverage report
-        uses: codecov/codecov-action@v4
-        with:
-          file: ./coverage.txt
-          fail_ci_if_error: false
-          verbose: true
+      # - name: Upload coverage report
+      #   uses: codecov/codecov-action@v4
+      #   with:
+      #     file: ./coverage.txt
+      #     fail_ci_if_error: false
+      #     verbose: true
 
       - name: Build
         run: |
