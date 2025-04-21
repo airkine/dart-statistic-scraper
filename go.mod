@@ -4,9 +4,6 @@ go 1.23.0
 
 toolchain go1.23.6
 
-// This toolchain directive might need to be removed if using older Go tools
-// toolchain go1.23.6
-
 require (
 	github.com/PuerkitoBio/goquery v1.10.3
 	github.com/ledongthuc/pdf v0.0.0-20240201131950-da5b75280b06
