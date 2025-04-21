@@ -47,7 +47,7 @@ jobs:
       - name: Install golangci-lint
         run: |
           mkdir -p ${{ github.workspace }}/bin
-          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b ${{ github.workspace }}/bin v1.54.2
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b ${{ github.workspace }}/bin v1.56.2
           echo "${{ github.workspace }}/bin" >> $GITHUB_PATH
 
       - name: Run linting

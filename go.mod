@@ -1,8 +1,9 @@
 module github.com/myusername/dart-statistic-scraper
 
-go 1.23.0
+go 1.23
 
-toolchain go1.23.6
+// This toolchain directive might need to be removed if using older Go tools
+// toolchain go1.23.6
 
 require (
 	github.com/PuerkitoBio/goquery v1.10.3
