@@ -52,6 +52,7 @@ jobs:
 
       - name: Run linting
         run: |
+          go mod tidy
           go fmt ./...
           go vet ./...
           golangci-lint run
