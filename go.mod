@@ -1,6 +1,6 @@
 module github.com/myusername/dart-statistic-scraper
 
-go 1.23.0
+go 1.20.0
 
 require (
 	github.com/PuerkitoBio/goquery v1.10.3
