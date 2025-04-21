@@ -1,0 +1,8 @@
+- @azure Rule - Use Azure Best Practices: When generating code for Azure, running terminal commands for Azure, or performing operations related to Azure, invoke your `azure_development-get_best_practices` tool if available.
+- Always target Go 1.20 or newer and enable module‑aware builds (GO111MODULE=on).
+- Before compiling, run go fmt ./…, go vet ./…, and golangci-lint run.
+- Bake the version (-ldflags "-X main.version=$(git describe --tags)") into the binary at build time.
+- Tag Docker images with both the Git SHA (sha-$(github.sha)) and semantic version from Git tags.
+- In GitHub Actions, cache $GOPATH/pkg/mod and $GITHUB_WORKSPACE/bin between runs using actions/cache.
+- Define a workflow job called ci triggered on push to main that runs lint → test → build → publish.
+- Use goreleaser for cross‑compiling Linux/AMD64 and ARM64 binaries and pushing to GitHub Releases.
