@@ -6,3 +6,4 @@
 - In GitHub Actions, cache $GOPATH/pkg/mod and $GITHUB_WORKSPACE/bin between runs using actions/cache.
 - Define a workflow job called ci triggered on push to main that runs lint → test → build → publish.
 - Use goreleaser for cross‑compiling Linux/AMD64 and ARM64 binaries and pushing to GitHub Releases.
+- When creating github workflows, always use latest version when using github actions.

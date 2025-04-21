@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -15,6 +15,23 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/ledongthuc/pdf"
+)
+
+// URL constants
+var (
+	// Base URL for MacD Leagues website
+	MacDLeaguesBaseURL = "https://macdleagues.com"
+
+	// PDF schedule URL
+	SchedulePDFURL = "https://macdleagues.com/DartSchedules/FALL2024Schedules/FALL2024%2024SUN1.pdf"
+
+	// Standings URLs
+	StandingsBaseURL = "https://macdleagues.com/DartStandings/FALL2024standings"
+	MainStandingsURL = "https://macdleagues.com/DartStandings/FALL2024standings/FALL2024%2024SUN1OZCounty.html"
+
+	// Protocol prefixes
+	HTTPSPrefix = "https://"
+	HTTPPrefix  = "http://"
 )
 
 // PlayerStat holds statistics for a player
@@ -81,7 +98,7 @@ func ScrapeURL(url string) (string, error) {
 	}
 
 	// Read the response body
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", fmt.Errorf("error reading response body: %v", err)
 	}
@@ -116,13 +133,13 @@ func DownloadPDF(url string, localPath string) error {
 	}
 
 	// Read the response body
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return fmt.Errorf("error reading PDF response body: %v", err)
 	}
 
 	// Write to file
-	err = ioutil.WriteFile(localPath, body, 0644)
+	err = os.WriteFile(localPath, body, 0644)
 	if err != nil {
 		return fmt.Errorf("error saving PDF to file: %v", err)
 	}
@@ -147,7 +164,7 @@ func ReadPDFText(pdfPath string) (string, error) {
 	}
 
 	// Convert the bytes to string
-	content, err := ioutil.ReadAll(plainText)
+	content, err := io.ReadAll(plainText)
 	if err != nil {
 		return "", fmt.Errorf("error reading plain text from PDF: %v", err)
 	}
@@ -294,30 +311,166 @@ func ParseScheduleManually() []MatchSchedule {
 
 // FindOpponent returns the opponent team for a given team in a specific week
 func FindOpponent(team string, week int, schedules []MatchSchedule) string {
+	if team == "" {
+		log.Printf("WARNING: Empty team name, cannot find opponent for week %d", week)
+		return "Unknown"
+	}
+
+	// Before normalizing, log for debugging
+	log.Printf("Finding opponent for team '%s' in week %d", team, week)
+
+	// First, check if we have any schedules for this week
+	weekSchedules := []MatchSchedule{}
 	for _, schedule := range schedules {
 		if schedule.Week == week {
-			// Normalize team name for comparison
-			normTeam := NormalizeTeamName(team)
-			normHomeTeam := NormalizeTeamName(schedule.HomeTeam)
-			normAwayTeam := NormalizeTeamName(schedule.AwayTeam)
+			weekSchedules = append(weekSchedules, schedule)
+		}
+	}
 
-			// Special case for BYE entries
-			if strings.ToUpper(schedule.AwayTeam) == "BYE" && normTeam == normHomeTeam {
-				return "BYE"
-			}
+	if len(weekSchedules) == 0 {
+		log.Printf("WARNING: No schedule information found for week %d", week)
+		return "No Schedule"
+	}
 
-			if strings.ToUpper(schedule.HomeTeam) == "BYE" && normTeam == normAwayTeam {
-				return "BYE"
-			}
+	// Normalize team name for comparison
+	normTeam := NormalizeTeamName(team)
 
-			if normTeam == normHomeTeam {
-				return schedule.AwayTeam
-			} else if normTeam == normAwayTeam {
-				return schedule.HomeTeam
+	// First try exact match
+	for _, schedule := range weekSchedules {
+		normHomeTeam := NormalizeTeamName(schedule.HomeTeam)
+		normAwayTeam := NormalizeTeamName(schedule.AwayTeam)
+
+		// Special case for BYE entries
+		if strings.ToUpper(schedule.AwayTeam) == "BYE" && normTeam == normHomeTeam {
+			return "BYE"
+		}
+
+		if strings.ToUpper(schedule.HomeTeam) == "BYE" && normTeam == normAwayTeam {
+			return "BYE"
+		}
+
+		if normTeam == normHomeTeam {
+			return schedule.AwayTeam
+		} else if normTeam == normAwayTeam {
+			return schedule.HomeTeam
+		}
+	}
+
+	// If no match found, log all schedule entries for debugging
+	log.Printf("WARNING: Could not find match for team '%s' (normalized: '%s') in week %d", team, normTeam, week)
+	log.Printf("Available matchups for week %d:", week)
+	for _, schedule := range weekSchedules {
+		log.Printf("  %s vs %s", schedule.HomeTeam, schedule.AwayTeam)
+	}
+
+	// Try more aggressive matching
+	// Compare using just the distinctive parts of team names
+	teamKeywords := extractKeywords(normTeam)
+	for _, schedule := range weekSchedules {
+		homeKeywords := extractKeywords(NormalizeTeamName(schedule.HomeTeam))
+		awayKeywords := extractKeywords(NormalizeTeamName(schedule.AwayTeam))
+
+		// Check for keyword overlap
+		if keywordOverlap(teamKeywords, homeKeywords) {
+			log.Printf("Found approximate match using keywords: '%s' ~ '%s'", normTeam, schedule.HomeTeam)
+			return schedule.AwayTeam
+		} else if keywordOverlap(teamKeywords, awayKeywords) {
+			log.Printf("Found approximate match using keywords: '%s' ~ '%s'", normTeam, schedule.AwayTeam)
+			return schedule.HomeTeam
+		}
+	}
+
+	// Try fuzzy matching as a last resort
+	// Attempt to match partial team names
+	for _, schedule := range weekSchedules {
+		if partialNameMatch(normTeam, NormalizeTeamName(schedule.HomeTeam)) {
+			log.Printf("Found partial name match: '%s' ~ '%s'", normTeam, schedule.HomeTeam)
+			return schedule.AwayTeam
+		} else if partialNameMatch(normTeam, NormalizeTeamName(schedule.AwayTeam)) {
+			log.Printf("Found partial name match: '%s' ~ '%s'", normTeam, schedule.AwayTeam)
+			return schedule.HomeTeam
+		}
+	}
+
+	// Return a more informative message if no match found
+	return "Unknown (Fix Team Name)"
+}
+
+// extractKeywords extracts distinctive parts of a team name
+func extractKeywords(teamName string) []string {
+	// Remove common words
+	teamName = strings.ReplaceAll(teamName, "THE", "")
+
+	// Split by spaces
+	keywords := strings.Fields(teamName)
+
+	// Return non-empty keywords
+	var result []string
+	for _, keyword := range keywords {
+		if keyword != "" {
+			result = append(result, keyword)
+		}
+	}
+	return result
+}
+
+// keywordOverlap checks if there's significant overlap between keyword sets
+func keywordOverlap(keywords1, keywords2 []string) bool {
+	// For very short team names, require exact match
+	if len(keywords1) <= 1 && len(keywords2) <= 1 {
+		return len(keywords1) == len(keywords2) &&
+			(len(keywords1) == 0 || keywords1[0] == keywords2[0])
+	}
+
+	// Count matching keywords
+	matchCount := 0
+	for _, kw1 := range keywords1 {
+		for _, kw2 := range keywords2 {
+			if strings.Contains(kw1, kw2) || strings.Contains(kw2, kw1) {
+				matchCount++
+				break
 			}
 		}
 	}
-	return "Unknown"
+
+	// Require at least one match or 50% of keywords to match
+	return matchCount > 0 && float64(matchCount)/float64(len(keywords1)) >= 0.5
+}
+
+// partialNameMatch attempts to match team names partially
+func partialNameMatch(name1, name2 string) bool {
+	// If one name is significantly longer than the other,
+	// check if the shorter one is contained in the longer one
+	name1 = strings.ReplaceAll(name1, " ", "")
+	name2 = strings.ReplaceAll(name2, " ", "")
+
+	if len(name1) >= 2*len(name2) {
+		return strings.Contains(name1, name2)
+	} else if len(name2) >= 2*len(name1) {
+		return strings.Contains(name2, name1)
+	}
+
+	// For names of similar length, check for significant overlap
+	// (This could be improved with a proper string similarity algorithm)
+	shorterLen := len(name1)
+	if len(name2) < shorterLen {
+		shorterLen = len(name2)
+	}
+
+	// Require at least 3 characters to match if the names are long enough
+	minMatchLen := 3
+	if shorterLen < 3 {
+		minMatchLen = shorterLen
+	}
+
+	for i := 0; i <= len(name1)-minMatchLen; i++ {
+		substring := name1[i : i+minMatchLen]
+		if strings.Contains(name2, substring) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // NormalizeTeamName standardizes team names for comparison
@@ -325,25 +478,36 @@ func NormalizeTeamName(name string) string {
 	// First, preserve original name for specific case handling
 	originalName := strings.ToUpper(name)
 
+	// Log the original name for debugging
+	log.Printf("Normalizing team name: '%s'", originalName)
+
+	// Handle empty or very short names
+	if len(originalName) < 3 {
+		return originalName
+	}
+
 	// Special handling for Bridge Inn teams - must be checked first
 	if strings.Contains(originalName, "BRIDGE INN 1") ||
-		(strings.Contains(originalName, "BRIDGE INN") && strings.Contains(originalName, "1")) {
+		(strings.Contains(originalName, "BRIDGE INN") && strings.Contains(originalName, "1") && !strings.Contains(originalName, "2")) {
 		return "BRIDGE INN 1" // Return with spaces preserved
 	} else if strings.Contains(originalName, "BRIDGE INN 2") ||
 		(strings.Contains(originalName, "BRIDGE INN") && strings.Contains(originalName, "2")) {
 		return "BRIDGE INN 2" // Return with spaces preserved
+	} else if strings.Contains(originalName, "BRIDGE INN") {
+		return "BRIDGE INN" // If it just says Bridge Inn without a number
 	}
 
 	// Special handling for Sir James Pub teams
-	if strings.Contains(originalName, "SIR JAMES PUB 1") ||
-		(strings.Contains(originalName, "SIR JAMES PUB") && strings.Contains(originalName, "1") && !strings.Contains(originalName, "DOS")) {
-		return "SIR JAMES PUB 1"
-	} else if strings.Contains(originalName, "SIR JAMES PUB 2") ||
-		(strings.Contains(originalName, "SIR JAMES PUB") && (strings.Contains(originalName, "2") || strings.Contains(originalName, "DOS")) && !strings.Contains(originalName, "3")) {
-		return "SIR JAMES PUB 2"
-	} else if strings.Contains(originalName, "SIR JAMES PUB 3") ||
-		(strings.Contains(originalName, "SIR JAMES PUB") && strings.Contains(originalName, "3")) {
-		return "SIR JAMES PUB 3"
+	if strings.Contains(originalName, "SIR JAMES PUB") {
+		if strings.Contains(originalName, "1") && !strings.Contains(originalName, "DOS") {
+			return "SIR JAMES PUB 1"
+		} else if strings.Contains(originalName, "2") || strings.Contains(originalName, "DOS") && !strings.Contains(originalName, "3") {
+			return "SIR JAMES PUB 2"
+		} else if strings.Contains(originalName, "3") {
+			return "SIR JAMES PUB 3"
+		} else if strings.Contains(originalName, "SIR JAMES PUB") {
+			return "SIR JAMES PUB"
+		}
 	}
 
 	// Remove spaces, convert to uppercase, and remove non-alphanumeric chars
@@ -353,32 +517,47 @@ func NormalizeTeamName(name string) string {
 	// Replace common abbreviations/alternatives
 	replacements := map[string]string{
 		"THEHUTCH":       "THE HUTCH",
+		"HUTCH":          "THE HUTCH",
 		"HARBORHILLSTOO": "HARBOR HILLS TOO",
 		"HARBORHILLS2":   "HARBOR HILLS TOO",
 		"HARBORHILLSTWO": "HARBOR HILLS TOO",
+		"HARBORHILLS":    "HARBOR HILLS",
 		"HILLSHASEYES":   "HILLS HAS EYES",
 		"EYESOFTHEHILL":  "HILLS HAS EYES",
+		"HASEYES":        "HILLS HAS EYES",
 		"SIRJAMESPUBDOS": "SIR JAMES PUB 2",
 		"SIRJAMESPUB":    "SIR JAMES PUB",
 		"SPEARSNBEERS":   "SPEARS N BEERS",
+		"SPEARS":         "SPEARS N BEERS",
+		"SPEARSANDBEERS": "SPEARS N BEERS",
+		"CAPITALIZE":     "CAPITALIZE",
+		"CAP":            "CAPITALIZE",
+		"GRANDAVE":       "GRAND AVE",
+		"GRAND":          "GRAND AVE",
+		"REDHEADS":       "REDHEADS",
+		"RED":            "REDHEADS",
+		"REDHEAD":        "REDHEADS",
 	}
 
 	for k, v := range replacements {
 		if strings.Contains(name, k) {
+			log.Printf("Matched '%s' to '%s' from '%s'", name, v, originalName)
 			return v
 		}
 	}
 
+	// For debugging - log when we couldn't find a match
+	log.Printf("No replacement found for '%s', returning original: '%s'", name, originalName)
 	return originalName
 }
 
 // NormalizeURL ensures a URL is properly formatted with correct protocol slashes
 func NormalizeURL(url string) string {
 	// Fix common protocol formatting issues
-	if strings.HasPrefix(url, "https:/") && !strings.HasPrefix(url, "https://") {
-		url = "https://" + strings.TrimPrefix(url, "https:/")
-	} else if strings.HasPrefix(url, "http:/") && !strings.HasPrefix(url, "http://") {
-		url = "http://" + strings.TrimPrefix(url, "http:/")
+	if strings.HasPrefix(url, "https:/") && !strings.HasPrefix(url, HTTPSPrefix) {
+		url = HTTPSPrefix + strings.TrimPrefix(url, "https:/")
+	} else if strings.HasPrefix(url, "http:/") && !strings.HasPrefix(url, HTTPPrefix) {
+		url = HTTPPrefix + strings.TrimPrefix(url, "http:/")
 	}
 
 	// Ensure spaces are properly encoded
@@ -708,10 +887,11 @@ func ExtractPlayerStats(htmlContent string) ([]PlayerStat, []TeamStat) {
 	sectionHTML := htmlContent[startIndex:endIndex]
 	log.Printf("Found player stats section (length: %d characters)", len(sectionHTML))
 
-	// For debugging, save this section to a file
-	err := saveToFile("player_stats_section.html", sectionHTML)
+	// For debugging, save this section to a file in the html directory
+	playerStatsFile := filepath.Join("html", "player_stats_section.html")
+	err := saveToFile(playerStatsFile, sectionHTML)
 	if err == nil {
-		log.Printf("Saved player stats section to player_stats_section.html")
+		log.Printf("Saved player stats section to %s", playerStatsFile)
 	}
 
 	// Parse the HTML section with goquery
@@ -990,7 +1170,7 @@ func extractPlayerStatsFromTable(doc *goquery.Document, defaultTeam string) []Pl
 
 // saveToFile saves content to a file
 func saveToFile(filename, content string) error {
-	return ioutil.WriteFile(filename, []byte(content), 0644)
+	return os.WriteFile(filename, []byte(content), 0644)
 }
 
 // processStandingsPage processes a single standings page
@@ -1001,8 +1181,13 @@ func processStandingsPage(url string, week int) (*WeeklyStats, error) {
 		return nil, fmt.Errorf("error scraping URL: %v", err)
 	}
 
+	// Create the html directory if it doesn't exist
+	if err := os.MkdirAll("html", 0755); err != nil {
+		log.Printf("Error creating html directory: %v", err)
+	}
+
 	// Save the HTML content to a file for debugging
-	filename := fmt.Sprintf("standings_week_%d.html", week)
+	filename := filepath.Join("html", fmt.Sprintf("standings_week_%d.html", week))
 	err = saveToFile(filename, htmlContent)
 	if err != nil {
 		log.Printf("Error saving standings HTML: %v", err)
@@ -1126,8 +1311,15 @@ func main() {
 	log.Println("Dart Standings Scraper starting...")
 
 	// PDF schedule URL
-	scheduleURL := "https://macdleagues.com/DartSchedules/FALL2024Schedules/FALL2024%2024SUN1.pdf"
-	localPDFPath := "fall2024_schedule.pdf"
+	scheduleURL := SchedulePDFURL
+
+	// Create the pdf directory if it doesn't exist
+	if err := os.MkdirAll("pdf", 0755); err != nil {
+		log.Printf("Error creating pdf directory: %v", err)
+	}
+
+	// Save PDF to the pdf directory
+	localPDFPath := filepath.Join("pdf", "fall2024_schedule.pdf")
 
 	// First, attempt to download and process the schedule PDF
 	var schedules []MatchSchedule
@@ -1159,7 +1351,7 @@ func main() {
 
 	// Base URL for the standings page
 	urls := []string{
-		"https://macdleagues.com/DartStandings/FALL2024standings/FALL2024%2024SUN1OZCounty.html",
+		MainStandingsURL,
 	}
 	log.Printf("Will scrape %d URLs", len(urls))
 
@@ -1216,8 +1408,6 @@ func main() {
 		log.Printf("Found %d standings links to process", len(standingsURLs))
 
 		// Process each standings page
-		var weeklyStats []*WeeklyStats
-
 		for j, standingsURL := range standingsURLs {
 			// Extract the week number from the URL
 			week := j + 1
@@ -1233,10 +1423,10 @@ func main() {
 			log.Printf("Fetching standings link %d of %d: %s (Week: %d)", j+1, len(standingsURLs), standingsURL, week)
 
 			// Skip live fetching for testing if we already have the file locally
-			localFilename := fmt.Sprintf("standings_week_%d.html", week)
+			localFilename := filepath.Join("html", fmt.Sprintf("standings_week_%d.html", week))
 			if _, err := os.Stat(localFilename); err == nil {
 				log.Printf("Using local file for week %d", week)
-				htmlContent, err := ioutil.ReadFile(localFilename)
+				htmlContent, err := os.ReadFile(localFilename)
 				if err == nil {
 					playerStats, teamStats := ExtractPlayerStats(string(htmlContent))
 
@@ -1251,7 +1441,6 @@ func main() {
 						PlayerStats: playerStats,
 						TeamStats:   teamStats,
 					}
-					weeklyStats = append(weeklyStats, stats)
 
 					// Use the new display function that includes opponent information
 					displayWeeklyStatsWithOpponents(stats)
@@ -1271,9 +1460,6 @@ func main() {
 				opponent := FindOpponent(stats.PlayerStats[i].Team, week, schedules)
 				stats.PlayerStats[i].Opponent = opponent
 			}
-
-			// Add to weekly stats
-			weeklyStats = append(weeklyStats, stats)
 
 			// Display the stats for this week with opponent information
 			displayWeeklyStatsWithOpponents(stats)

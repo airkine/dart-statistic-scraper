@@ -18,7 +18,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-X main.version=$(git describe --tags || echo 'dev')" -o /app/bin/dart-scraper ./cmd/dart-scraper
 
 # Runtime stage - using minimal alpine image
-FROM alpine:3.19
+FROM alpine:3.21
 
 # Add CA certificates for HTTPS
 RUN apk --no-cache add ca-certificates
