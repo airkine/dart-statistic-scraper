@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.23.6-alpine AS builder
+FROM golang:${GO_VERSION:-1.20}-alpine AS builder
 
 # Install git for version detection
 RUN apk add --no-cache git
@@ -18,7 +18,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-X main.version=$(git describe --tags || echo 'dev')" -o /app/bin/dart-scraper ./cmd/dart-scraper
 
 # Runtime stage - using minimal alpine image
-FROM alpine:3.21
+FROM alpine:3.19
 
 # Add CA certificates for HTTPS
 RUN apk --no-cache add ca-certificates

@@ -8,12 +8,20 @@ on:
     branches: [ main ]
 
 env:
+  OWNER: airkine
+  REPO: dart-statistic-scraper
   GO111MODULE: "on"
+  GO_VERSION: '1.23'
+  GOLANGCI_LINT_VERSION: 'v1.54.2'
+
 
 jobs:
   ci:
     name: CI
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -23,8 +31,9 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.20'
+          go-version: ${{ env.GO_VERSION }}
           check-latest: true
+          cache: true # Enable integrated module caching
 
       - name: Cache Go modules
         uses: actions/cache@v4
@@ -47,18 +56,25 @@ jobs:
       - name: Install golangci-lint
         run: |
           mkdir -p ${{ github.workspace }}/bin
-          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b ${{ github.workspace }}/bin v1.54.2
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b ${{ github.workspace }}/bin ${{ env.GOLANGCI_LINT_VERSION }}
           echo "${{ github.workspace }}/bin" >> $GITHUB_PATH
 
-      - name: Basic linting
+      - name: Lint
         run: |
+          go mod tidy
           go fmt ./...
           go vet ./...
-      
-      # Uncommon linting commands are left out as requested
+          golangci-lint run
 
       - name: Run tests
-        run: go test -v ./...
+        run: go test -v ./... -coverprofile=coverage.txt -covermode=atomic
+
+      - name: Upload coverage report
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.txt
+          fail_ci_if_error: false
+          verbose: true
 
       - name: Build
         run: |
@@ -66,11 +82,11 @@ jobs:
           go build -ldflags "-X main.version=$(git describe --tags || echo 'dev')" -o ./bin/dart-scraper ./cmd/dart-scraper
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
 
       - name: Login to Docker Hub
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
@@ -79,10 +95,12 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: myusername/dart-statistic-scraper
+          images: ${{ env.OWNER }}/dart-statistic-scraper
           tags: |
             type=semver,pattern={{version}}
             type=sha,prefix=sha-,format=short
+            type=ref,event=branch
+            type=ref,event=pr
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
@@ -93,17 +111,23 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          build-args: |
+            GO_VERSION=${{ env.GO_VERSION }}
 
       - name: Upload binary as artifact
         uses: actions/upload-artifact@v4
         with:
           name: dart-scraper-binary
           path: ./bin/dart-scraper
+          retention-days: 7
 
   release:
     name: Release
     needs: ci
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Checkout code
@@ -114,14 +138,9 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.20'
+          go-version: ${{ env.GO_VERSION }}
           check-latest: true
-
-      - name: Install GoReleaser
-        run: |
-          mkdir -p ${{ github.workspace }}/bin
-          curl -sL https://git.io/goreleaser | bash -s -- --version=latest
-          echo "${{ github.workspace }}/bin" >> $GITHUB_PATH
+          cache: true
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v5
