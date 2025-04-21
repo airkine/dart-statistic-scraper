@@ -52,28 +52,28 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bin-
 
-      # - name: Install golangci-lint
-      #   run: |
-      #     mkdir -p ${{ github.workspace }}/bin
-      #     curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b ${{ github.workspace }}/bin ${{ env.GOLANGCI_LINT_VERSION }}
-      #     echo "${{ github.workspace }}/bin" >> $GITHUB_PATH
+#       - name: Install golangci-lint
+#           run: |
+#               mkdir -p ${{ github.workspace }}/bin
+#               curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b ${{ github.workspace }}/bin ${{ env.GOLANGCI_LINT_VERSION }}
+#               echo "${{ github.workspace }}/bin" >> $GITHUB_PATH
 
-      # - name: Lint
-      #   run: |
-      #     go mod tidy
-      #     go fmt ./...
-      #     go vet ./...
-      #     golangci-lint run
+#       - name: Lint
+#           run: |
+#               go mod tidy
+#               go fmt ./...
+#               go vet ./...
+#               golangci-lint run
 
-      # - name: Run tests
-      #   run: go test -v ./... -coverprofile=coverage.txt -covermode=atomic
+#       - name: Run tests
+#           run: go test -v ./... -coverprofile=coverage.txt -covermode=atomic
 
-      # - name: Upload coverage report
-      #   uses: codecov/codecov-action@v4
-      #   with:
-      #     file: ./coverage.txt
-      #     fail_ci_if_error: false
-      #     verbose: true
+#       - name: Upload coverage report
+#           uses: codecov/codecov-action@v4
+#           with:
+#               file: ./coverage.txt
+#               fail_ci_if_error: false
+#               verbose: true
 
       - name: Build
         run: |
@@ -139,19 +139,39 @@ jobs:
           git tag -a $VERSION -m "Release $VERSION"
           git push origin $VERSION
 
+  # This job will run both on tag push events and when the ci job creates a tag
   release:
     name: Release
+    # Only run this job IF:
+    # 1. This is a tag push event (github.ref starts with refs/tags/v)
+    # OR
+    # 2. The ci job completed and we're on the main branch (for tags created within ci)
+    if: startsWith(github.ref, 'refs/tags/v') || (github.ref == 'refs/heads/main' && needs.ci.result == 'success' && github.event_name != 'pull_request')
     needs: ci
     runs-on: ubuntu-latest
     permissions:
       contents: write
       packages: write
-    if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      # If we're running from a tag push, use that tag
+      # If we're running after the CI job created a tag, get the generated version
+      - name: Get release version
+        id: get_version
+        run: |
+          if [[ $GITHUB_REF == refs/tags/v* ]]; then
+            # We're running from a tag, use that
+            echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          else
+            # We need to get the most recent tag that the ci job created
+            LATEST_TAG=$(git describe --tags --abbrev=0)
+            echo "version=${LATEST_TAG}" >> $GITHUB_OUTPUT
+          fi
+          echo "Using version: ${{ steps.get_version.outputs.version }}"
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -168,3 +188,4 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.get_version.outputs.version }}
