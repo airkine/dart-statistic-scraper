@@ -11,7 +11,7 @@ env:
   OWNER: airkine
   REPO: dart-statistic-scraper
   GO111MODULE: "on"
-  GO_VERSION: '1.23'
+  GO_VERSION: '1.20'
   GOLANGCI_LINT_VERSION: 'v1.54.2'
 
 jobs:
@@ -19,7 +19,7 @@ jobs:
     name: CI
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       packages: write
     steps:
       - name: Checkout code
@@ -119,6 +119,25 @@ jobs:
           name: dart-scraper-binary
           path: ./bin/dart-scraper
           retention-days: 7
+          
+      - name: Generate version from date
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        id: generate_version
+        run: |
+          DATE_VERSION="v$(date +'%Y.%m.%d')"
+          BUILD_NUMBER=$(date +'%H%M')
+          VERSION="${DATE_VERSION}.${BUILD_NUMBER}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Generated version: ${VERSION}"
+          
+      - name: Create and push tag
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: |
+          VERSION=${{ steps.generate_version.outputs.version }}
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git tag -a $VERSION -m "Release $VERSION"
+          git push origin $VERSION
 
   release:
     name: Release
